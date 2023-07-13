@@ -1160,6 +1160,9 @@ function M.open_classfile(fname)
   if vim.startswith(fname, "jdt://") then
     uri = fname
     use_cmd = false
+  elseif vim.startswith(fname, "jdt:/") then
+    uri = fname:gsub("jdt:/", "jdt://", 1)
+    use_cmd = false
   else
     uri = vim.uri_from_fname(fname)
     use_cmd = true
