@@ -51,6 +51,8 @@ see some of the functionality in action.
   - `git clone https://github.com/mfussenegger/nvim-jdtls.git ~/.config/nvim/pack/plugins/start/nvim-jdtls`
   - Or with [vim-plug][14]: `Plug 'mfussenegger/nvim-jdtls'`
   - Or with [packer.nvim][15]: `use 'mfussenegger/nvim-jdtls'`
+  - Or any other plugin manager
+
 
 ## Language Server Installation
 
@@ -136,7 +138,10 @@ local config = {
   -- 💀
   -- This is the default if not provided, you can remove it. Or adjust as needed.
   -- One dedicated LSP server & client will be started per unique root_dir
-  root_dir = require('jdtls.setup').find_root({'.git', 'mvnw', 'gradlew'}),
+  --
+  -- vim.fs.root requires Neovim 0.10.
+  -- If you're using an earlier version, use: require('jdtls.setup').find_root({'.git', 'mvnw', 'gradlew'}),
+  root_dir = vim.fs.root(0, {".git", "mvnw", "gradlew"})
 
   -- Here you can configure eclipse.jdt.ls specific settings
   -- See https://github.com/eclipse/eclipse.jdt.ls/wiki/Running-the-JAVA-LS-server-from-the-command-line#initialize-request
@@ -327,6 +332,9 @@ config['init_options'] = {
 
 `nvim-jdtls` will automatically register a `java` debug adapter with nvim-dap,
 if nvim-dap is available.
+
+If you're using a plugin manager with explicit dependency manager, make sure
+that `nvim-dap` is listed as dependency for `nvim-jdtls` for this to work.
 
 
 ### nvim-dap configuration

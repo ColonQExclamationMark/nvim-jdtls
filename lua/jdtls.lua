@@ -15,6 +15,8 @@ local setup = require('jdtls.setup')
 
 local offset_encoding = 'utf-16'
 
+---@diagnostic disable-next-line: deprecated
+local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
 
 
 local M = {
@@ -30,14 +32,18 @@ local M = {
 }
 
 --- Start the language server (if not started), and attach the current buffer.
---- @param config table configuration. See |vim.lsp.start_client|
-function M.start_or_attach(config)
-  setup.start_or_attach(config)
+---
+---@param config table<string, any> configuration. See |vim.lsp.start_client|
+---@param opts? jdtls.start.opts
+---@param start_opts? vim.lsp.start.Opts options passed to vim.lsp.start
+---@return integer|nil client_id
+function M.start_or_attach(config, opts, start_opts)
+  return setup.start_or_attach(config, opts, start_opts)
 end
 
 
 local request = function(bufnr, method, params, handler)
-  local clients = vim.lsp.get_active_clients({ bufnr = bufnr, name = "jdtls" })
+  local clients = get_clients({ bufnr = bufnr, name = "jdtls" })
   local _, client = next(clients)
   if not client then
     vim.notify("No LSP client with name `jdtls` available", vim.log.levels.WARN)
@@ -479,7 +485,7 @@ local function change_signature(bufnr, command, code_action_params)
         if vim.startswith(line, "---") then
           break
         elseif expect_param_next and vim.startswith(line, "- ") then
-          local matches = { line:match("%- ((%d+):) (%w+) (%w+)") }
+          local matches = { line:match("%- ((%d+):) ([^ ]+) (%w+)") }
           if next(matches) then
             table.insert(parameters, {
               name = matches[4],
@@ -487,7 +493,7 @@ local function change_signature(bufnr, command, code_action_params)
               type = matches[3],
             })
           else
-            matches = { line:match("%- (%w+) (%w+) ?(%w*)") }
+            matches = { line:match("%- (%w+) ([^ ]+) ?(.*)") }
             if next(matches) then
               table.insert(parameters, {
                 type = matches[1],
@@ -871,7 +877,6 @@ local function on_build_result(err, result, ctx)
     vim.fn.setqflist({}, 'r', { title = 'jdtls'; items = {} })
     print('Compile successful')
   else
-    vim.tbl_add_reverse_lookup(CompileWorkspaceStatus)
     local project_config_errors = {}
     local compile_errors = {}
     local ns = vim.lsp.diagnostic.get_namespace(ctx.client_id)
@@ -893,7 +898,13 @@ local function on_build_result(err, result, ctx)
     local items = #project_config_errors > 0 and project_config_errors or compile_errors
     vim.fn.setqflist({}, 'r', { title = 'jdtls'; items = vim.diagnostic.toqflist(items) })
     if #items > 0 then
-      print(string.format('Compile error. (%s)', CompileWorkspaceStatus[result]))
+      local reverse_status = {
+        [0] = "FAILED",
+        [1] = "SUCCEEDED",
+        [2] = "WITHERROR",
+        [3] = "CANCELLED",
+      }
+      print(string.format('Compile error. (%s)', reverse_status[result]))
       vim.cmd('copen')
     else
       print("Compile error, but no error diagnostics available."
@@ -1089,6 +1100,7 @@ end
 --- Run the `jshell` tool in a terminal buffer.
 --- Sets the classpath based on the current project.
 function M.jshell()
+  local bufnr = api.nvim_get_current_buf()
   with_classpaths(function(result)
     local buf = api.nvim_create_buf(true, true)
     local classpaths = {}
@@ -1102,7 +1114,7 @@ function M.jshell()
       api.nvim_win_set_buf(0, buf)
       local jshell = java_exec and (vim.fn.fnamemodify(java_exec, ":p:h") .. '/jshell') or "jshell"
       vim.fn.termopen(jshell, { env = { ["CLASSPATH"] = cp }})
-    end)
+    end, bufnr)
   end)
 end
 
@@ -1178,16 +1190,18 @@ function M.open_classfile(fname)
   vim.bo[buf].filetype = 'java'
   local timeout_ms = M.settings.jdt_uri_timeout_ms
   vim.wait(timeout_ms, function()
-    return next(vim.lsp.get_active_clients({ name = "jdtls", bufnr = buf })) ~= nil
+    return next(get_clients({ name = "jdtls", bufnr = buf })) ~= nil
   end)
-  local client = vim.lsp.get_active_clients({ name = "jdtls", bufnr = buf })[1]
+  local client = get_clients({ name = "jdtls", bufnr = buf })[1]
   assert(client, 'Must have a `jdtls` client to load class file or jdt uri')
 
   local content
   local function handler(err, result)
     assert(not err, vim.inspect(err))
     content = result
-    api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(result, "\n", { plain = true }))
+    local normalized = string.gsub(result, '\r\n', '\n')
+    local source_lines = vim.split(normalized, "\n", { plain = true })
+    api.nvim_buf_set_lines(buf, 0, -1, false, source_lines)
     vim.bo[buf].modifiable = false
   end
 
@@ -1212,7 +1226,7 @@ end
 ---@private
 function M._complete_set_runtime()
   local client
-  for _, c in pairs(vim.lsp.get_active_clients()) do
+  for _, c in pairs(get_clients()) do
     if c.config.settings.java then
       client = c
       break
@@ -1231,7 +1245,7 @@ end
 ---@param runtime nil|string Java runtime. Prompts for runtime if nil
 function M.set_runtime(runtime)
   local client
-  for _, c in pairs(vim.lsp.get_active_clients()) do
+  for _, c in pairs(get_clients()) do
     if c.config.settings.java then
       client = c
       break
